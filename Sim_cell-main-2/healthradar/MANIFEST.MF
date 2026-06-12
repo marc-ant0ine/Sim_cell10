@@ -1,2 +1,0 @@
-Main-Class: healthradar.App
-Class-Path: lib/javafx.base.jar lib/javafx.controls.jar lib/javafx.graphics.jar lib/javafx.fxml.jar
