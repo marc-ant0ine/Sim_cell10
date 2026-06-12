@@ -51,11 +51,11 @@ public class SimulationEngine implements Serializable {
     /**
      * Advances the simulation by exactly one step and records statistics.
      */
-    public void step() {
-        grid.step();
-        stepCount++;
-        recordStats();
-    }
+   public void step() {
+    grid.step(this.stepCount);   // on passe le compteur avant incrémentation
+    stepCount++;
+    recordStats();
+}
 
     /**
      * Resets the engine: clears the grid, zeroes the step counter, and
