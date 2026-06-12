@@ -55,6 +55,10 @@ public class Cell implements Serializable {
 
     private ZoneType zoneType;
 
+   // Destination for the guided movement (Najem Moussa)
+    private int destRow = -1;
+    private int destCol = -1;
+
     // ── Constructor ───────────────────────────────────────────────────────────
 
     /**
@@ -126,6 +130,11 @@ public class Cell implements Serializable {
     public ZoneType getZoneType() { return zoneType; }
     public void setZoneType(ZoneType zoneType) { this.zoneType = zoneType; }
 
+    public int getDestRow() { return destRow; }
+    public int getDestCol() { return destCol; }
+    public void setDestination(int row, int col) { this.destRow = row; this.destCol = col; }
+    public boolean hasDestination() { return destRow >= 0 && destCol >= 0; }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
@@ -169,16 +178,18 @@ public class Cell implements Serializable {
      * @return a new Cell with identical attribute values
      */
     public Cell copy() {
-        Cell c = new Cell();
-        c.state = this.state;
-        c.zoneType = this.zoneType;
-        c.stateAge = this.stateAge;
-        c.resistance = this.resistance;
-        c.baseMoveProbability = this.baseMoveProbability;
-        c.moveProbability = this.moveProbability;
-        c.masked = this.masked;
-        return c;
-    }
+    Cell c = new Cell();
+    c.state = this.state;
+    c.zoneType = this.zoneType;
+    c.stateAge = this.stateAge;
+    c.resistance = this.resistance;
+    c.baseMoveProbability = this.baseMoveProbability;
+    c.moveProbability = this.moveProbability;
+    c.masked = this.masked;
+    c.destRow = this.destRow;
+    c.destCol = this.destCol;
+    return c;
+}
 
     @Override
     public String toString() {
