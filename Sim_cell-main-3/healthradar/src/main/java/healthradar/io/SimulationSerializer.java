@@ -190,6 +190,8 @@ public class SimulationSerializer {
         // Build grid
         Grid grid = new Grid(gridW, gridH, tor, disease, 0);
 
+        
+
         // Restore cells
         String cellsArr = root.rawArr("cells");
         if (cellsArr != null) {
@@ -215,6 +217,8 @@ public class SimulationSerializer {
                 }
             }
         }
+
+        grid.assignDestinationsByZone();
 
         // Build engine and restore history
         SimulationEngine engine = new SimulationEngine(grid);
