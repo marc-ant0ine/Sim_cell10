@@ -123,7 +123,49 @@ public class Grid implements Serializable {
             setCell(positions.get(idx)[0], positions.get(idx)[1], CellState.SUSCEPTIBLE);
         for (int i = 0; i < infectedCount && idx < positions.size(); i++, idx++)
             setCell(positions.get(idx)[0], positions.get(idx)[1], CellState.INFECTED);
+          assignDestinationsByZone();
     }
+
+    /**
+    * Assigns a destination to each live cell based on its zone:
+    * - RESIDENTIAL cells are assigned a random WORK cell.
+    * - WORK cells are assigned a random RESIDENTIAL cell.
+    * - Other zones have no destination (standard random walk).
+    * Must be called after the grid has been populated or loaded.
+ */
+
+    public void assignDestinationsByZone() {
+    List<int[]> residentials = new ArrayList<>();
+    List<int[]> works = new ArrayList<>();
+    for (int r = 0; r < height; r++) {
+        for (int c = 0; c < width; c++) {
+            ZoneType z = cells[r][c].getZoneType();
+            if (z == ZoneType.RESIDENTIAL) {
+                residentials.add(new int[]{r, c});
+            } else if (z == ZoneType.WORK) {
+                works.add(new int[]{r, c});
+            }
+        }
+    }
+    if (residentials.isEmpty() || works.isEmpty()) return;
+
+    for (int r = 0; r < height; r++) {
+        for (int c = 0; c < width; c++) {
+            Cell cell = cells[r][c];
+            if (!cell.isAlive()) continue;
+            ZoneType zone = cell.getZoneType();
+            if (zone == ZoneType.RESIDENTIAL) {
+                int[] target = works.get(rng.nextInt(works.size()));
+                cell.setDestination(target[0], target[1]);
+            } else if (zone == ZoneType.WORK) {
+                int[] target = residentials.get(rng.nextInt(residentials.size()));
+                cell.setDestination(target[0], target[1]);
+            } else {
+                cell.setDestination(-1, -1);
+            }
+        }
+    }
+}
 
     // ── Simulation step ───────────────────────────────────────────────────────
 
@@ -170,84 +212,93 @@ public class Grid implements Serializable {
      * @param next the future grid (copy) to write movements into
      * @param step current simulation step (for weekday/weekend check)
      */
-    private void movePhase(Cell[][] next, int step) {
-        List<int[]> coords = shuffledCoords();
-        boolean weekend = isWeekend(step);
+   private void movePhase(Cell[][] next, int step) {
+    boolean weekend = isWeekend(step);
+    List<int[]> coords = shuffledCoords();
 
-        for (int[] coord : coords) {
-            int r = coord[0];
-            int c = coord[1];
+    for (int[] coord : coords) {
+        int r = coord[0];
+        int c = coord[1];
+        Cell currentAgent = cells[r][c];
+        if (!currentAgent.isAlive()) continue;
 
-            Cell currentAgent = cells[r][c];
+        double prob = currentAgent.getMoveProbability();
+        if (weekend) {
+            // Weekends: less frequent travel
+            prob = Math.min(1.0, prob * 0.3);
+        }
+        if (rng.nextDouble() >= prob) continue;
 
-            if (currentAgent.getState() == CellState.EMPTY || currentAgent.getState() == CellState.DEAD) {
-                continue;
-            }
-
-            double prob = currentAgent.getMoveProbability();
-            if (!weekend) {
-                prob = Math.min(1.0, prob * 1.5);   // semaine : +50%
-            } else {
-                prob = prob * 0.7;                  // week-end : -30%
-            }
-
-            if (rng.nextDouble() < prob) {
-                List<int[]> neighbors = new ArrayList<>();
-                for (int rd = -1; rd <= 1; rd++) {
-                    for (int cd = -1; cd <= 1; cd++) {
-                        if (rd == 0 && cd == 0) continue;
-
-                        int nr = r + rd;
-                        int nc = c + cd;
-
-                        if (toroidal) {
-                            nr = wrap(nr, height);
-                            nc = wrap(nc, width);
-                            neighbors.add(new int[]{nr, nc});
-                        } else {
-                            if (nr >= 0 && nr < height && nc >= 0 && nc < width) {
-                                neighbors.add(new int[]{nr, nc});
-                            }
-                        }
-                    }
-                }
-
-                // Mélange des directions pour un déplacement aléatoire
-                Collections.shuffle(neighbors, rng);
-
-                // Tentative de déplacement
-                for (int[] nextCoord : neighbors) {
-                    int nextR = nextCoord[0];
-                    int nextC = nextCoord[1];
-
-                    // On vérifie si la case est libre dans la grille FUTURE (next)
-                    if (next[nextR][nextC].getState() == CellState.EMPTY) {
-
-                        Cell futureSource = next[r][c];
-                        Cell futureTarget = next[nextR][nextC];
-
-                        // On transfère les attributs de la PERSONNE vers sa nouvelle cellule
-                        futureTarget.setState(currentAgent.getState());
-                        futureTarget.setStateAge(currentAgent.getStateAge());
-                        futureTarget.setResistance(currentAgent.getResistance());
-                        futureTarget.setMoveProbability(currentAgent.getMoveProbability());
-                        futureTarget.setMasked(currentAgent.isMasked());
-
-                        // L'ancienne cellule redevient VIDE
-                        futureSource.setState(CellState.EMPTY);
-                        futureSource.setStateAge(0);
-                        futureSource.setResistance(0);
-                        futureSource.setMoveProbability(0);
-                        futureSource.setMasked(false);
-
-                        // Note : futureSource.zoneType et futureTarget.zoneType ne sont pas modifiés.
-                        // Donc le type de zone (Route, commerce...) reste ancré au sol.
-                        break;
+        // Building the neighbours
+        List<int[]> neighbors = new ArrayList<>();
+        for (int rd = -1; rd <= 1; rd++) {
+            for (int cd = -1; cd <= 1; cd++) {
+                if (rd == 0 && cd == 0) continue;
+                int nr = r + rd;
+                int nc = c + cd;
+                if (toroidal) {
+                    nr = wrap(nr, height);
+                    nc = wrap(nc, width);
+                    neighbors.add(new int[]{nr, nc});
+                } else {
+                    if (nr >= 0 && nr < height && nc >= 0 && nc < width) {
+                        neighbors.add(new int[]{nr, nc});
                     }
                 }
             }
         }
+
+        // Filter out empty neighbours in the next grid
+        List<int[]> emptyNeighbors = new ArrayList<>();
+        for (int[] nb : neighbors) {
+            int nr = nb[0], nc = nb[1];
+            if (next[nr][nc].getState() == CellState.EMPTY) {
+                emptyNeighbors.add(nb);
+            }
+        }
+        if (emptyNeighbors.isEmpty()) continue;
+
+        int[] chosen;
+        if (!weekend && currentAgent.hasDestination()) {
+           
+            int targetRow = currentAgent.getDestRow();
+            int targetCol = currentAgent.getDestCol();
+            int bestDist = Integer.MAX_VALUE;
+            List<int[]> best = new ArrayList<>();
+            for (int[] nb : emptyNeighbors) {
+                int d = Math.abs(nb[0] - targetRow) + Math.abs(nb[1] - targetCol);
+                if (d < bestDist) {
+                    bestDist = d;
+                    best.clear();
+                    best.add(nb);
+                } else if (d == bestDist) {
+                    best.add(nb);
+                }
+            }
+            chosen = best.get(rng.nextInt(best.size()));
+        } else {
+            // Weekend or no destination: random
+            chosen = emptyNeighbors.get(rng.nextInt(emptyNeighbors.size()));
+        }
+
+        // Execute the move
+        int nextR = chosen[0], nextC = chosen[1];
+        Cell futureSource = next[r][c];
+        Cell futureTarget = next[nextR][nextC];
+
+        futureTarget.setState(currentAgent.getState());
+        futureTarget.setStateAge(currentAgent.getStateAge());
+        futureTarget.setResistance(currentAgent.getResistance());
+        futureTarget.setMoveProbability(currentAgent.getMoveProbability());
+        futureTarget.setMasked(currentAgent.isMasked());
+
+        futureSource.setState(CellState.EMPTY);
+        futureSource.setStateAge(0);
+        futureSource.setResistance(0);
+        futureSource.setMoveProbability(0);
+        futureSource.setMasked(false);
     }
+}
 
     /**
      * Phase 2 – infected (and optionally exposed) cells try to transmit to
