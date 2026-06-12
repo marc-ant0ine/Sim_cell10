@@ -86,7 +86,7 @@ public class Grid implements Serializable {
      */
     public void setCell(int row, int col, CellState state) {
         if (!inBounds(row, col)) return;
-        cells[row][col] = (state == CellState.EMPTY) ? new Cell() : new Cell(state, cells[row][col].getZoneType(),rng);
+        cells[row][col] = (state == CellState.EMPTY) ? new Cell() : new Cell(state, cells[row][col].getZoneType(), rng);
     }
 
     /**
@@ -132,13 +132,15 @@ public class Grid implements Serializable {
      *
      * <p>The update is performed on a copy of the grid to avoid order-dependent
      * artefacts (all cells read the previous generation).</p>
+     *
+     * @param step the current simulation step number (used to determine week/weekend)
      */
-    public void step() {
+    public void step(int step) {
         // Deep-copy current grid as the read-source
         Cell[][] next = deepCopy(cells);
 
         // --- Phase 1: movement ---
-        movePhase(next);
+        movePhase(next, step);
 
         // --- Phase 2: infection spread ---
         infectionPhase(next);
@@ -149,20 +151,47 @@ public class Grid implements Serializable {
         cells = next;
     }
 
-    public void movePhase(Cell[][] nextCells) {
+    /**
+     * Determines whether the given step number corresponds to a weekend day.
+     * Assumes step 0 = Monday, 1 = Tuesday, ..., 5 = Saturday, 6 = Sunday.
+     *
+     * @param step simulation step count
+     * @return true if Saturday or Sunday
+     */
+    private boolean isWeekend(int step) {
+        int dayOfWeek = step % 7;
+        return dayOfWeek == 5 || dayOfWeek == 6;
+    }
+
+    /**
+     * Phase 1 – movement: each alive cell may move to a random adjacent empty cell.
+     * Movement probability is increased by 50% on weekdays, decreased by 30% on weekends.
+     *
+     * @param next the future grid (copy) to write movements into
+     * @param step current simulation step (for weekday/weekend check)
+     */
+    private void movePhase(Cell[][] next, int step) {
         List<int[]> coords = shuffledCoords();
+        boolean weekend = isWeekend(step);
 
         for (int[] coord : coords) {
             int r = coord[0];
             int c = coord[1];
-            
+
             Cell currentAgent = cells[r][c];
 
             if (currentAgent.getState() == CellState.EMPTY || currentAgent.getState() == CellState.DEAD) {
                 continue;
             }
 
-            if (rng.nextDouble() < currentAgent.getMoveProbability()) {
+            double prob = currentAgent.getMoveProbability();
+            if (!weekend) {
+                prob = Math.min(1.0, prob * 1.5);   // semaine : +50%
+            } else {
+                prob = prob * 0.7;                  // week-end : -30%
+            }
+
+            if (rng.nextDouble() < prob) {
                 List<int[]> neighbors = new ArrayList<>();
                 for (int rd = -1; rd <= 1; rd++) {
                     for (int cd = -1; cd <= 1; cd++) {
@@ -182,20 +211,20 @@ public class Grid implements Serializable {
                         }
                     }
                 }
-                
+
                 // Mélange des directions pour un déplacement aléatoire
                 Collections.shuffle(neighbors, rng);
 
-                // 4. Tentative de déplacement
+                // Tentative de déplacement
                 for (int[] nextCoord : neighbors) {
                     int nextR = nextCoord[0];
                     int nextC = nextCoord[1];
 
-                    // On vérifie si la case est libre dans la grille FUTURE (nextCells)
-                    if (nextCells[nextR][nextC].getState() == CellState.EMPTY) {
-                        
-                        Cell futureSource = nextCells[r][c];
-                        Cell futureTarget = nextCells[nextR][nextC];
+                    // On vérifie si la case est libre dans la grille FUTURE (next)
+                    if (next[nextR][nextC].getState() == CellState.EMPTY) {
+
+                        Cell futureSource = next[r][c];
+                        Cell futureTarget = next[nextR][nextC];
 
                         // On transfère les attributs de la PERSONNE vers sa nouvelle cellule
                         futureTarget.setState(currentAgent.getState());
@@ -211,16 +240,13 @@ public class Grid implements Serializable {
                         futureSource.setMoveProbability(0);
                         futureSource.setMasked(false);
 
-                        // Note magique : futureSource.zoneType et futureTarget.zoneType ne sont pas modifiés.
+                        // Note : futureSource.zoneType et futureTarget.zoneType ne sont pas modifiés.
                         // Donc le type de zone (Route, commerce...) reste ancré au sol.
-                        break; 
+                        break;
                     }
                 }
             }
         }
-
-        // 5. On applique la grille future
-        this.cells = nextCells;
     }
 
     /**
@@ -276,19 +302,21 @@ public class Grid implements Serializable {
                 for (int dr = -radius; dr <= radius; dr++) {
                     for (int dc = -radius; dc <= radius; dc++) {
                         if (dr == 0 && dc == 0) continue;
-                        if (disease.isAirborne() && Math.sqrt(dr*dr + dc*dc) > radius) continue;
+                        if (disease.isAirborne() && Math.sqrt(dr * dr + dc * dc) > radius) continue;
 
                         int nr = r + dr;
                         int nc = c + dc;
-                        if (toroidal) { nr = wrap(nr, height); nc = wrap(nc, width); }
-                        else if (!inBounds(nr, nc)) continue;
+                        if (toroidal) {
+                            nr = wrap(nr, height);
+                            nc = wrap(nc, width);
+                        } else if (!inBounds(nr, nc)) continue;
 
                         Cell target = grid[nr][nc];
                         CellState tst = target.getState();
 
                         // Only susceptible, vaccinated, and masked-healthy can be exposed
                         if (tst != CellState.SUSCEPTIBLE
-                         && tst != CellState.VACCINATED) continue;
+                                && tst != CellState.VACCINATED) continue;
 
                         // Base probability
                         double baseRate = spreadRate[r][c];
@@ -355,9 +383,9 @@ public class Grid implements Serializable {
                             cell.resetStateAge();
                         }
                     }
-                    // MASKED stays masked indefinitely (user-controlled)
                     // EMPTY, DEAD, SUSCEPTIBLE – no progression
-                    default -> { }
+                    default -> {
+                    }
                 }
             }
         }
@@ -394,17 +422,33 @@ public class Grid implements Serializable {
 
     // ── Accessors ─────────────────────────────────────────────────────────────
 
-    /** @return grid width (columns) */
-    public int getWidth() { return width; }
+    /**
+     * @return grid width (columns)
+     */
+    public int getWidth() {
+        return width;
+    }
 
-    /** @return grid height (rows) */
-    public int getHeight() { return height; }
+    /**
+     * @return grid height (rows)
+     */
+    public int getHeight() {
+        return height;
+    }
 
-    /** @return true if toroidal topology is active */
-    public boolean isToroidal() { return toroidal; }
+    /**
+     * @return true if toroidal topology is active
+     */
+    public boolean isToroidal() {
+        return toroidal;
+    }
 
-    /** @param toroidal true to enable toroidal mode */
-    public void setToroidal(boolean toroidal) { this.toroidal = toroidal; }
+    /**
+     * @param toroidal true to enable toroidal mode
+     */
+    public void setToroidal(boolean toroidal) {
+        this.toroidal = toroidal;
+    }
 
     /**
      * Returns the cell at the given position.
@@ -418,11 +462,19 @@ public class Grid implements Serializable {
         return cells[row][col];
     }
 
-    /** @return the disease currently configured for this grid */
-    public Disease getDisease() { return disease; }
+    /**
+     * @return the disease currently configured for this grid
+     */
+    public Disease getDisease() {
+        return disease;
+    }
 
-    /** @param disease new disease to apply */
-    public void setDisease(Disease disease) { this.disease = disease; }
+    /**
+     * @param disease new disease to apply
+     */
+    public void setDisease(Disease disease) {
+        this.disease = disease;
+    }
 
     // ── Utility ───────────────────────────────────────────────────────────────
 
