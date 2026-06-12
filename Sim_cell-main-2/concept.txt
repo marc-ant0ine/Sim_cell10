@@ -1,0 +1,113 @@
+Simulation : jour par jour
+Lien entre simulation et application :
+- creation d'une ville normale "mode manuel"
+- les conditions d'entrées données par l'utilisateur ( temps réel et réajuste à chaque jour)
+- pause et simulation de prévision
+
+Ville:
+- Case[][] ville
+- int nbHabitant
+- int nbMalade
+- boolean portMasque
+- Maladie[] listeMaladie
+
+Case : 
+- TypeZone type (metro, residence, parc, etc)
+- Densité densitePop (trèsFaible: 0.2, faible : 0.5, moyen:1, grand:1.2)
+- Personne[] listePersonne
+- int nbPersonneTot
+- int nbPersonneInfecté (peu importe la maladie)
+- int[] risque = (nbPersonneInfecté/nbPersonneTot) * taux d'infection
+- Maladie[] maladies, dans le même ordre des risques (pour l'affichage)
+- int capacité (si nbPersonneTot > capacité : risque*2 => cluster)
+
+Maladie: 
+- String nom
+- Int rayonPropagation (pour l'affichage)
+- optionnel : Type (air, contact, ..)
+- int tauxInfection (entre 0 et 1)
+- int tauxGuérison
+- int tauxMortalité
+- int nbJourncubation
+- int nbJourTotal
+
+Personne : 
+- String nom
+- int age
+- Etat etat (sain, incube ,malade, guérie, mort)
+- Maladie maladie (si infecté ou incubé)
+- int nbJourInfecté (0 si sain ou guéri)
+- int immunité (entre 0 et 1 (seuil=0))
+- optionnel boolean masque (augmente l'immunité, seuil 0.15)
+- int fragilité (calculté avec à l'immunité et à l'age)
+
+fragilité = 0.5 * immuFragil + 0.4 * ageFragil + 0.1 * portMasque
+ageFragil | age      immufragil = 1 - immunité
+   0.5     | <10
+   0.2     | 10-20
+   0.4     | 20-40
+   0.6     | 40-60
+   0.8     | 60-75
+    1      | >75
+
+
+
+
+REGLES DE SIMULATION:
+1. DEPLACEMENT : chaque personne bouge ou reste au même endroit ; case adjascente. Lorsqu'on passe par les personne, si infectée, on fait nbJourInfecté += 1
+2. CONTAMINATION : Pour chaque personne on calcule le pourcentage de chance d'infection avec un rand
+P(infection) = Maladie.tauxInfection x Case.densitéPop x Case.risque x Personne.(1-immunité)
+3. INCUBATION : Si la personne est infectée, on regarde si Personne.nbJourInfecté > Maladie.nbJourncubation. On change incubé en infceté si ça dépasse
+4. GUERISON & MORTALITE : On calcule le taux de guérison et de mortalité
+P(guérison) = Maladie.tauxGuérison x (1-fragilité)
+P(mortalité) = Maladie.tauxMortalité x fragilité
+Si Personne.nbJourInfecté >= nbJourTotal alors la personne devient guérie tout de suite.
+Lorsqu'une personne est guérie, son immunité est à 1 (100%) et chaque jour, immunité-- descend jusqu'au seuil
+
+
+
+
+AFFICHAGE: 
+Info Ville □ □ ■ ■ ■ ■ ■ ■ □ □ □ ■ ■ ■
+   blabla   □ □ ■ ● ■ ■ ■ ■ ■ □ ■ ■ ■ ■
+                  □ ■ ■ ■ ■ ■ ◊ ■ ◊ ■ ■ ■ ■ ■
+                  ■ ■ ■ ● ■ ■ ◊ ❤ ❤ ■ ■ ■ ■ ■
+                  ■ ■ ■ ● ● ■ ◊ ■ ❤ ■ ■ ■ ■ ■
+                  □ □ ■ ■ ● ■ ■ ■ ■ ❤ ■ ■ ■ ■
+                  □ □ ■ ■ ■ □ ■ ■ ■ ■ ■ ■ ■ □
+           ____________▲||_______________
+
+Ici les cases :
+□ sont des cases vides (personne dedans)
+■ sont des cases saines (pas de maladies
+●, ◊ et ❤ sont des maladies. Sur Java FX et sur la console on les représentera par de la couleur
+
+Possibilité de plusieurs maladies :
+- Java FX : opacité = risque de la case en pourcent (avec un seuil d'affichage en paramètre). Pour la superposition, on mixe les couleurs ou alors on affiche seulement celle avec le plus grand risque
+- Console : carré de couleur (comme en haut). La superposition lors de l'affichage est ignorée et on affiche celle avec le plus grand risque
+- Au début on testera avec une seule maladie, et après on pourra en ajouter plusieurs
+Actions :
+- onClick sur la case pour afficher les info de la case sur la droite (avec la possibilité de scroller?). Sur ces infos on aura la liste des personnes et la liste des maladies sur lequelles on pourra cliquer
+- onClick sur la Personne : pareil que sur la case et ici on a aussi la maladie qu'il a (s'il est malade)
+- onClick sur la Maladie : pareil que sur le reste
+
+Clusters si le nb de personne est superieur ou égal à la capacité de la case. Sur Java FX faire un affichage différent
+
+Type de zone : mettre des emojis sur console et des images (ou alors que des emojis) sur Java FX
+metro 🚆; parc🌳; résidence 🏠 ; etc
+
+Le _▲||_ correspond à l'UI sur Java FX (sur console on donnera des indications clavier).
+UI pause/arrêt/rewind/etc : sert à "bouger la simulation". La sim du début à l'actuelle sera sauvegarder dans Ville[] et à chaque fois qu'on veut voir la suite on la calcule. Si il y a des modifications, on demande avant si on veut sauvegarder la sim précédente, et on créer une nouvelle (pas d'incohérence dans le passé de la sim)
+
+
+
+BONUS:
+- ASPECT URBAIN (optionnel) : le déplacement se fait par rapport aux lieux habituels de la personne (maison, travail, transport, loisir, famille)
+- MUTATION (optionnel) : on ajoute un taux de mutation à la maladie, et chaque jour on check
+Si la mutation arrive, on créer une maladie avec + d'incubation et/ou + de contagion
+
+
+
+Choses à améliorer : 
+- calcul de la fragilité
+- l'affichage
